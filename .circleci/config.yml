@@ -56,10 +56,10 @@ jobs:
           name: Scan Docker image
           command: |
             set +eo pipefail
-            docker build . -t 712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest 
+            docker build . -t 354050472283.dkr.ecr.us-east-1.amazonaws.com/testingwizrepository1:greatesttag 
             printf "\nAttemping image scan with auth from cache\n"
             # ./wizcli auth --id ${WIZCLI_ID} --secret ${WIZCLI_SECRET}
-            ./wizcli docker scan --image 712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest --policy ${WIZ_POLICY}
+            ./wizcli docker scan --image 354050472283.dkr.ecr.us-east-1.amazonaws.com/testingwizrepository1:greatesttag --policy ${WIZ_POLICY}
             if [ $? -ne 0 ]; then exit 1; fi
             exitCode=$?
             if [ $exitCode -eq 3 ]; then
@@ -67,7 +67,7 @@ jobs:
               printf "\nCould not authenticate from cache, auth-ing and running the scan\n"
               # ${WIZCLI_ID} and ${WIZCLI_SECRET} are variables you declared in step 2c
               ./wizcli auth --id ${WIZCLI_ID} --secret ${WIZCLI_SECRET}
-              ./wizcli docker scan --image  712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest  --policy ${WIZ_POLICY}
+              ./wizcli docker scan --image  354050472283.dkr.ecr.us-east-1.amazonaws.com/testingwizrepository1:greatesttag  --policy ${WIZ_POLICY}
               if [ $? -ne 0 ]; then exit 1; fi
               exitCode=$?
             fi
