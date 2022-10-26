@@ -1,26 +1,99 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/2.0/configuration-reference
-version: 2.1
-
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
-    docker:
-      - image: cimg/base:stable
-    # Add steps to the job
-    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
+  wizcli_scan:
+    machine: true
+    working_directory: ~/app
+    parameters:
+      account-id:
+        default: AWS_ECR_REPO_ACCOUNT_ID
+        description: Name of environment variable storing the Amazon ECR repository's account ID
+        type: env_var_name
+      region:
+        default: AWS_REGION
+        description: Name of environment variable storing AWS region information, defaults to AWS_REGION
+        type: env_var_name
+      repo:
+        default: devops
+        description: Name of an Amazon ECR repository
+        type: string
+      tag:
+        default: latest
+        description: A comma-separated string containing docker image tags (default = latest)
+        type: string
+      account-url:
+        default: AWS_ECR_ACCOUNT_URL
+        description: ecr url
+        type: env_var_name  
+      dockerfile:
+        default: Dockerfile
+        description: Name of dockerfile to use. Defaults to Dockerfile.
+        type: string
     steps:
+      # Running the built-in checkout script to checkout the code in this repo
       - checkout
+      # Step to download WizCLI from the inter-webs
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Download wizcli
+          command: |
+            pwd
+            sudo curl -o ./wizcli https://wizcli.app.wiz.io/wizcli
+            sudo chmod +x ./wizcli
+      # Log the scan time
+      - run: date +%F > date
+      # Step to restore authentication cache and re-use if exists
+      #- restore_cache:
+      #    key: wizcli-{{ .Environment.WIZCLI_ID }}-{{ checksum "date" }}
+      # Attempt a scan from cache, then try to authenticate if not available
+      # docker pull is attemped, but the example can be converted to trigger right after a build step instead
+      - run: 
+          name: Scan Docker File
+          command: |
+            set +eo pipefail
+            ./wizcli auth --id ${WIZCLI_ID} --secret ${WIZCLI_SECRET}
+            ./wizcli iac scan --path . --policy ${WIZ_POLICY_IAC}
+            if [ $? -ne 0 ]; then exit 1; fi
+            exitCode=$?
+      - run:
+          name: Scan Docker image
+          command: |
+            set +eo pipefail
+            docker build . -t 712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest 
+            printf "\nAttemping image scan with auth from cache\n"
+            # ./wizcli auth --id ${WIZCLI_ID} --secret ${WIZCLI_SECRET}
+            ./wizcli docker scan --image 712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest --policy ${WIZ_POLICY}
+            if [ $? -ne 0 ]; then exit 1; fi
+            exitCode=$?
+            if [ $exitCode -eq 3 ]; then
+              # Time to authenticate!
+              printf "\nCould not authenticate from cache, auth-ing and running the scan\n"
+              # ${WIZCLI_ID} and ${WIZCLI_SECRET} are variables you declared in step 2c
+              ./wizcli auth --id ${WIZCLI_ID} --secret ${WIZCLI_SECRET}
+              ./wizcli docker scan --image  712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest  --policy ${WIZ_POLICY}
+              if [ $? -ne 0 ]; then exit 1; fi
+              exitCode=$?
+            fi
+            exit $exitCode
+      
+      - run:
+          name: Auth to AWS and push to ECR
+          command: |
+            # aws ecr get-login returns a login command w/ a temp token
+            # LOGIN_COMMAND=$(aws ecr get-login --no-include-email --region $<<parameters.region>>)
+            LOGIN_COMMAND=$(`aws ecr get-login-password --region us-east-1`)
+            # save it to an env var & use that env var to login
+            $LOGIN_COMMAND
+            docker login --username AWS --password $LOGIN_COMMAND 712798819748.dkr.ecr.us-east-1.amazonaws.com
+            docker push 712798819748.dkr.ecr.us-east-1.amazonaws.com/devops-lab:latest
+          
+          
+      # Save auth cache for next time
+      - save_cache:
+          key: wizcli-{{ .Environment.WIZCLI_ID }}-{{ checksum "date" }}
+          paths:
+            - ~/.wiz/auth.json   
 
-# Invoke jobs via workflows
-# See: https://circleci.com/docs/2.0/configuration-reference/#workflows
+# In your workflow, make sure to trigger the wizcli_scan job you just declared above (it can trigger after a docker_build job):
 workflows:
-  say-hello-workflow:
+  version: 2
+  build_workflow:
     jobs:
-      - say-hello
+      - wizcli_scan
